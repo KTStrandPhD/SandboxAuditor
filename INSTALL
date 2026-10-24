@@ -1,0 +1,160 @@
+#!/usr/bin/env bash
+#
+# INSTALL - Installer for SandboxAuditor security suite
+
+set -euo pipefail
+
+PREFIX="${PREFIX:-/usr/local}"
+BIN_DIR="${PREFIX}/bin"
+LIB_DIR="${PREFIX}/lib/sandboxauditor"
+MAN_DIR="${PREFIX}/share/man/man1"
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Ensure installer runs as root
+if [[ $EUID -ne 0 ]]; then
+  echo "[-] Error: Installer must be run with root/sudo privileges." >&2
+  exit 1
+fi
+
+echo "[*] Installing SandboxAuditor to ${PREFIX}..."
+
+# 1. Create target directories
+mkdir -p "${BIN_DIR}"
+mkdir -p "${LIB_DIR}"
+mkdir -p "${MAN_DIR}"
+
+# 2. Copy modular scripts to internal library directory
+echo "[*] Copying library scripts to ${LIB_DIR}..."
+cp -r "${SCRIPT_DIR}/src" "${LIB_DIR}/"
+chmod 755 "${LIB_DIR}"
+chmod 755 "${LIB_DIR}/src"
+chmod +x "${LIB_DIR}/src/provision_sandbox.sh"
+chmod +x "${LIB_DIR}/src/audit_privileges.py"
+
+# 3. Create global executable wrapper in PATH
+echo "[*] Creating global executable launcher at ${BIN_DIR}/SandboxAuditor..."
+cat << 'EOF' > "${BIN_DIR}/SandboxAuditor"
+#!/usr/bin/env bash
+# Global launcher for SandboxAuditor
+
+LIB_DIR="/usr/local/lib/sandboxauditor"
+PROVISION_SCRIPT="${LIB_DIR}/src/provision_sandbox.sh"
+AUDIT_SCRIPT="${LIB_DIR}/src/audit_privileges.py"
+
+show_help() {
+  cat << 'HELP_EOF'
+SandboxAuditor - Restricted User Sandbox Orchestration & Privilege Audit Suite
+
+Usage:
+  sudo SandboxAuditor [OPTIONS] [username]
+
+Options:
+  <username>           Audit the specified user's home directory (Default action).
+  -a, --audit          Explicitly run privilege and file exposure audit on username.
+  -l, --list           List all active sandbox users (users with /bin/rbash shell).
+  -c, --create         Provision a new restricted user sandbox environment.
+  -d, --delete         Remove an existing sandbox user account and clean up home directory.
+  -h, --help           Display this help menu and exit.
+
+Examples:
+  sudo SandboxAuditor testuser
+  sudo SandboxAuditor --list
+  sudo SandboxAuditor --create testuser
+  sudo SandboxAuditor --delete testuser
+HELP_EOF
+}
+
+run_list() {
+  echo "[*] Scanning system for active sandbox accounts (shell: /bin/rbash)..."
+  local found=0
+
+  while IFS=: read -r username _ uid gid _ home shell; do
+    if [[ "${shell}" == "/bin/rbash" ]]; then
+      echo "  [+] User: ${username} | UID: ${uid} | Home: ${home}"
+      found=1
+    fi
+  done < <(getent passwd)
+
+  if [[ ${found} -eq 0 ]]; then
+    echo "[-] No active sandbox users found on this system."
+  fi
+}
+
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+  show_help
+  exit 0
+fi
+
+if [[ $EUID -ne 0 ]]; then
+  echo "[-] Error: SandboxAuditor must be run with root/sudo privileges." >&2
+  exit 1
+fi
+
+ACTION=""
+TARGET_USER=""
+
+case "${1:-}" in
+  -l|--list)
+    ACTION="list"
+    ;;
+  -c|--create)
+    ACTION="create"
+    TARGET_USER="${2:-}"
+    ;;
+  -d|--delete)
+    ACTION="delete"
+    TARGET_USER="${2:-}"
+    ;;
+  -a|--audit)
+    ACTION="audit"
+    TARGET_USER="${2:-}"
+    ;;
+  "")
+    echo "[-] Error: No options or username specified." >&2
+    echo "[-] Run 'SandboxAuditor --help' or 'man SandboxAuditor' for details." >&2
+    exit 1
+    ;;
+  *)
+    ACTION="audit"
+    TARGET_USER="$1"
+    ;;
+esac
+
+if [[ "${ACTION}" != "list" && -z "${TARGET_USER}" ]]; then
+  echo "[-] Error: Username required for '${ACTION}' action." >&2
+  echo "[-] Run 'SandboxAuditor --help' for details." >&2
+  exit 1
+fi
+
+case "${ACTION}" in
+  list)
+    run_list
+    ;;
+  create)
+    exec "${PROVISION_SCRIPT}" "${TARGET_USER}"
+    ;;
+  delete)
+    exec "${PROVISION_SCRIPT}" --delete "${TARGET_USER}"
+    ;;
+  audit)
+    exec python3 "${AUDIT_SCRIPT}" "${TARGET_USER}"
+    ;;
+esac
+EOF
+
+chmod +x "${BIN_DIR}/SandboxAuditor"
+
+# 4. Install Man Page
+if [[ -f "${SCRIPT_DIR}/docs/sandboxauditor.1" ]]; then
+  echo "[*] Installing manual page to ${MAN_DIR}/SandboxAuditor.1..."
+  cp "${SCRIPT_DIR}/docs/sandboxauditor.1" "${MAN_DIR}/SandboxAuditor.1"
+  chmod 644 "${MAN_DIR}/SandboxAuditor.1"
+
+  if command -v mandb >/dev/null 2>&1; then
+    mandb -q || true
+  fi
+fi
+
+echo "[+] Installation complete! You can now run 'SandboxAuditor' from anywhere."
+echo "[+] View the manual page using: man SandboxAuditor"

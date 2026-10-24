@@ -1,0 +1,153 @@
+#!/usr/bin/env bash
+#
+# SandboxAuditor - Unified CLI Driver for Sandbox Provisioning & Auditing
+#
+# Usage:
+#   Audit (Default):   sudo ./SandboxAuditor <username>
+#   Audit (Explicit):  sudo ./SandboxAuditor --audit <username>
+#   List Sandboxes:    sudo ./SandboxAuditor --list
+#   Provision User:    sudo ./SandboxAuditor --create <username>
+#   Delete User:       sudo ./SandboxAuditor --delete <username>
+#   Help:              ./SandboxAuditor --help
+#
+
+set -euo pipefail
+
+# Locate project base directory dynamically
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROVISION_SCRIPT="${SCRIPT_DIR}/src/provision_sandbox.sh"
+AUDIT_SCRIPT="${SCRIPT_DIR}/src/audit_privileges.py"
+
+# ==============================================================================
+# Helper Functions
+# ==============================================================================
+show_help() {
+  cat << 'EOF'
+SandboxAuditor - Restricted User Sandbox Orchestration & Privilege Audit Suite
+
+Usage:
+  sudo ./SandboxAuditor [OPTIONS] [username]
+
+Options:
+  <username>           Audit the specified user's home directory (Default action).
+  -a, --audit          Explicitly run privilege and file exposure audit on <username>.
+  -l, --list           List all active sandbox users (users with /bin/rbash shell).
+  -c, --create         Provision a new restricted user sandbox environment.
+  -d, --delete         Remove an existing sandbox user account and clean up home directory.
+  -h, --help           Display this help menu and exit.
+
+Examples:
+  sudo ./SandboxAuditor testuser
+  sudo ./SandboxAuditor --audit testuser
+  sudo ./SandboxAuditor --list
+  sudo ./SandboxAuditor --create testuser
+  sudo ./SandboxAuditor --delete testuser
+  ./SandboxAuditor --help
+EOF
+}
+
+verify_dependencies() {
+  if [[ ! -f "${PROVISION_SCRIPT}" ]]; then
+    echo "[-] Error: Provisioning script not found at ${PROVISION_SCRIPT}" >&2
+    exit 1
+  fi
+
+  if [[ ! -f "${AUDIT_SCRIPT}" ]]; then
+    echo "[-] Error: Audit script not found at ${AUDIT_SCRIPT}" >&2
+    exit 1
+  fi
+}
+
+# ==============================================================================
+# Help Menu Routing
+# ==============================================================================
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+  show_help
+  exit 0
+fi
+
+# Ensure underlying administrative sub-scripts run with root privileges
+if [[ $EUID -ne 0 ]]; then
+  echo "[-] Error: SandboxAuditor must be run with root/sudo privileges." >&2
+  exit 1
+fi
+
+verify_dependencies
+
+# ==============================================================================
+# Sandbox Listing Function
+# ==============================================================================
+run_list() {
+  echo "[*] Scanning system for active sandbox accounts (shell: /bin/rbash)..."
+  local found=0
+  
+  while IFS=: read -r username _ uid gid _ home shell; do
+    if [[ "${shell}" == "/bin/rbash" ]]; then
+      echo "  [+] User: ${username} | UID: ${uid} | Home: ${home}"
+      found=1
+    fi
+  done < <(getent passwd)
+
+  if [[ ${found} -eq 0 ]]; then
+    echo "[-] No active sandbox users found on this system."
+  fi
+}
+
+# ==============================================================================
+# Argument Parsing & Dispatch
+# ==============================================================================
+ACTION=""
+TARGET_USER=""
+
+case "${1:-}" in
+  -l|--list)
+    ACTION="list"
+    ;;
+  -c|--create)
+    ACTION="create"
+    TARGET_USER="${2:-}"
+    ;;
+  -d|--delete)
+    ACTION="delete"
+    TARGET_USER="${2:-}"
+    ;;
+  -a|--audit)
+    ACTION="audit"
+    TARGET_USER="${2:-}"
+    ;;
+  "")
+    echo "[-] Error: No options or username specified." >&2
+    echo "[-] Run './SandboxAuditor --help' for usage details." >&2
+    exit 1
+    ;;
+  *)
+    # Default behavior: positional argument is the username to audit
+    ACTION="audit"
+    TARGET_USER="$1"
+    ;;
+esac
+
+# Validate target user if action requires one
+if [[ "${ACTION}" != "list" && -z "${TARGET_USER}" ]]; then
+  echo "[-] Error: Username required for '${ACTION}' action." >&2
+  echo "[-] Run './SandboxAuditor --help' for usage details." >&2
+  exit 1
+fi
+
+# ==============================================================================
+# Sub-script / Action Invocation
+# ==============================================================================
+case "${ACTION}" in
+  list)
+    run_list
+    ;;
+  create)
+    exec "${PROVISION_SCRIPT}" "${TARGET_USER}"
+    ;;
+  delete)
+    exec "${PROVISION_SCRIPT}" --delete "${TARGET_USER}"
+    ;;
+  audit)
+    exec python3 "${AUDIT_SCRIPT}" "${TARGET_USER}"
+    ;;
+esac

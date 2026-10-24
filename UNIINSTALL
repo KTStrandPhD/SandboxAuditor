@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+#
+# UNINSTALL - Uninstaller for SandboxAuditor security suite
+
+set -euo pipefail
+
+PREFIX="${PREFIX:-/usr/local}"
+BIN_PATH="${PREFIX}/bin/SandboxAuditor"
+LIB_DIR="${PREFIX}/lib/sandboxauditor"
+MAN_PATH="${PREFIX}/share/man/man1/SandboxAuditor.1"
+
+# Ensure uninstaller runs as root
+if [[ $EUID -ne 0 ]]; then
+  echo "[-] Error: Uninstaller must be run with root/sudo privileges." >&2
+  exit 1
+fi
+
+echo "[*] Uninstalling SandboxAuditor from ${PREFIX}..."
+
+# 1. Remove global executable wrapper
+if [[ -f "${BIN_PATH}" || -L "${BIN_PATH}" ]]; then
+  echo "[*] Removing executable launcher: ${BIN_PATH}"
+  rm -f "${BIN_PATH}"
+else
+  echo "[*] Executable launcher not found at ${BIN_PATH}. Skipping."
+fi
+
+# 2. Remove internal library directory and sub-scripts
+if [[ -d "${LIB_DIR}" ]]; then
+  echo "[*] Removing library directory: ${LIB_DIR}"
+  rm -rf "${LIB_DIR}"
+else
+  echo "[*] Library directory not found at ${LIB_DIR}. Skipping."
+fi
+
+# 3. Remove manual page and update mandb
+if [[ -f "${MAN_PATH}" ]]; then
+  echo "[*] Removing manual page: ${MAN_PATH}"
+  rm -f "${MAN_PATH}"
+
+  if command -v mandb >/dev/null 2>&1; then
+    echo "[*] Updating man database index..."
+    mandb -q || true
+  fi
+else
+  echo "[*] Manual page not found at ${MAN_PATH}. Skipping."
+fi
+
+echo "[+] SandboxAuditor has been completely uninstalled from system directories."

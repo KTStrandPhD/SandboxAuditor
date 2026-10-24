@@ -1,0 +1,53 @@
+.\" Manpage for SandboxAuditor
+.TH SANDBOXAUDITOR 1 "October 2026" "v1.0.0" "SandboxAuditor Manual"
+.SH NAME
+SandboxAuditor \- Restricted user sandbox orchestration and privilege audit suite
+.SH SYNOPSIS
+.B sudo SandboxAuditor
+[\fIOPTIONS\fR] [\fIUSERNAME\fR]
+.SH DESCRIPTION
+.B SandboxAuditor
+is a security utility for Linux systems designed to provision restricted user environments (\fBrbash\fR), enforce strict filesystem masks, and perform privilege exposure audits.
+.SH OPTIONS
+.TP
+.B <username>
+Default positional action. Audits the specified user's home directory tree for permission drift and exposed sensitive keys.
+.TP
+.BR \-a ", " \-\-audit " \fIUSERNAME\fR"
+Explicitly executes a privilege and file exposure audit on \fIUSERNAME\fR.
+.TP
+.BR \-l ", " \-\-list
+Scans the system account database (\fI/etc/passwd\fR) and lists all active accounts configured with the restricted shell (\fI/bin/rbash\fR).
+.TP
+.BR \-c ", " \-\-create " \fIUSERNAME\fR"
+Provisions a new restricted sandbox user, configuring \fIrbash\fR, applying a strict \fBumask 027\fR setting, and locking down home directory ownership to root (\fB750\fR).
+.TP
+.BR \-d ", " \-\-delete " \fIUSERNAME\fR"
+Tears down an existing sandbox account and purges the associated home directory.
+.TP
+.BR \-h ", " \-\-help
+Displays the command-line help menu and exits.
+.SH EXAMPLES
+.TP
+Provision a new sandbox user:
+.B sudo SandboxAuditor --create testuser
+.TP
+List active sandbox accounts:
+.B sudo SandboxAuditor --list
+.TP
+Audit a user's home directory:
+.B sudo SandboxAuditor testuser
+.TP
+Delete a sandbox user:
+.B sudo SandboxAuditor --delete testuser
+.SH EXIT STATUS
+.TP
+.B 0
+Success.
+.TP
+.B 1
+Failure (missing arguments, missing root privileges, or execution error).
+.SH SEE ALSO
+.BR rbash (1),
+.BR chmod (1),
+.BR umask (2)
