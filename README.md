@@ -1,6 +1,5 @@
 # SandboxAuditor
 
-<<<<<<< HEAD
 **SandboxAuditor** is a security orchestration and privilege audit suite designed to automate the provisioning, monitoring, and audit of restricted user environments (such as `/bin/rbash` restricted shells) on Linux systems.
 
 ---
